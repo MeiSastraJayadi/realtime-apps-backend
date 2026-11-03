@@ -81,4 +81,51 @@ public class Servers
             .ToList();
     }
 
+    public async Task JoinAsync(int serverId, CancellationToken ct)
+    {
+        string userId = GetUserId(); 
+
+        if (await _serverMemberRepository.IsMemberAsync(userId, serverId, ct))
+            return;
+        
+        if (!await _serverRepository.ExistAsync(serverId, ct))
+            throw new KeyNotFoundException("Server was not found"); 
+        
+        await _serverMemberRepository.AddAsync(new ServerMember(userId, serverId), ct);
+        await _unitOfWork.SaveChangesAsync(ct); 
+
+        await _realtimeNotifier.MemberJoinedServerAsync(serverId, userId, ct);
+    }
+
+    public async Task LeaveAsync(int serverId, CancellationToken ct)
+    {
+        string userId = GetUserId(); 
+        Server? server = await _serverRepository.GetByIdAsync(serverId, ct)
+            ?? throw new KeyNotFoundException("Server was not found");
+        
+        if (server.OwnerId == userId)
+            throw new InvalidOperationException("The owner cannot leave their server"); 
+        
+        if (!await _serverMemberRepository.IsMemberAsync(userId, serverId, ct))
+            return;
+        
+        await _serverMemberRepository.RemoveAsync(userId, serverId, ct); 
+        await _unitOfWork.SaveChangesAsync(ct); 
+
+        await _realtimeNotifier.MemberLeftServerAsync(serverId, userId, ct); 
+    }
+
+    public async Task DeleteAsync(int serverId, CancellationToken ct)
+    {
+        string userId = GetUserId(); 
+        Server? server = await _serverRepository.GetByIdAsync(serverId, ct)
+            ?? throw new KeyNotFoundException("Server was not found");
+        
+        if (server.OwnerId != userId)
+            throw new UnauthorizedAccessException("Only the owner can delete this server"); 
+        
+        _serverRepository.Remove(server); 
+        await _unitOfWork.SaveChangesAsync(ct);
+    }
+
 }
